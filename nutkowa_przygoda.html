@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Nutkowa przygoda 🎵</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:#f6f4ff;color:#252733;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+body{min-height:100vh}
+.app{width:min(900px,100%);margin:auto;padding:18px 14px 28px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+h1{font-size:clamp(24px,5vw,36px);margin:0;font-weight:850}
+.score{background:#eeeaff;border-radius:999px;padding:9px 15px;font-weight:800}
+.levels{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}
+button{font:inherit;min-height:46px;border:0;border-radius:13px;padding:10px 16px;font-weight:800;cursor:pointer}
+.level{background:#fff;border:1px solid #ddd9e9}
+.level.active{background:#6957d8;color:white;border-color:#6957d8}
+.instruction{text-align:center;color:#687083;font-weight:700;margin:12px 0}
+.game{background:#fffdf8;border:1px solid #e4dfd4;border-radius:22px;padding:8px;box-shadow:0 8px 28px rgba(40,35,70,.08)}
+#gameSvg{width:100%;display:block;touch-action:none;user-select:none;-webkit-user-select:none}
+.status{text-align:center;min-height:42px;padding:10px 4px;font-size:18px;font-weight:850}
+.actions{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:12px}
+.primary{background:#6957d8;color:#fff}
+.secondary{background:#eeeaff;color:#5041ae}
+.note{touch-action:none;cursor:grab}
+.note ellipse{fill:#252933;stroke:#fff;stroke-width:2}
+.note line{stroke:#252933;stroke-width:4;stroke-linecap:round}
+.note text{fill:white;font-size:15px;font-weight:850;text-anchor:middle;dominant-baseline:middle;pointer-events:none}
+.note.good ellipse{fill:#24a66f}
+.note.bad ellipse{fill:#df5b62}
+.staff{stroke:#2d3038;stroke-width:2}
+.target{fill:none;stroke:#d9d3c7;stroke-width:2;stroke-dasharray:5 5}
+.tip{text-align:center;color:#737b8b;font-size:14px;margin-top:10px}
+@media(max-width:520px){.app{padding:12px 8px 22px}.game{padding:4px;border-radius:17px}}
+</style>
+</head>
+<body>
+<main class="app">
+<header>
+<h1>🎵 Nutkowa przygoda</h1>
+<div class="score" id="score">⭐ 0</div>
+</header>
+
+<div class="levels">
+<button class="level active" data-level="1">1 · Łatwy</button>
+<button class="level" data-level="2">2 · Średni</button>
+<button class="level" data-level="3">3 · Trudny</button>
+</div>
+
+<div class="instruction">Przeciągnij każdą nutę na właściwe miejsce na pięciolinii.</div>
+
+<section class="game">
+<svg id="gameSvg" viewBox="0 0 760 470" aria-label="Gra w układanie nut">
+<rect width="760" height="470" rx="18" fill="#fffdf8"/>
+<text x="380" y="48" text-anchor="middle" font-size="18" font-weight="800" fill="#697386">
+ZNAJDŹ MIEJSCE DLA KAŻDEJ NUTY
+</text>
+<text x="42" y="205" font-size="105" font-family="serif" fill="#252933">𝄞</text>
+<g id="lines"></g>
+<g id="targets"></g>
+<g id="notes"></g>
+<text x="380" y="360" text-anchor="middle" font-size="15" font-weight="700" fill="#697386">NUTY</text>
+</svg>
+<div class="status" id="status" aria-live="polite">Zaczynamy! 🎶</div>
+</section>
+
+<div class="actions">
+<button class="primary" id="newRound">🎲 Nowa runda</button>
+<button class="secondary" id="sayNote">🔊 Wymowa nut</button>
+</div>
+<div class="tip">Na iPadzie przytrzymaj nutę i przeciągnij ją palcem.</div>
+</main>
+
+<script>
+(() => {
+const svg=document.getElementById("gameSvg");
+const lines=document.getElementById("lines");
+const targets=document.getElementById("targets");
+const notes=document.getElementById("notes");
+const status=document.getElementById("status");
+const scoreEl=document.getElementById("score");
+const newRound=document.getElementById("newRound");
+const sayNote=document.getElementById("sayNote");
+const NS="http://www.w3.org/2000/svg";
+
+const pitch={C4:225,D4:213,E4:201,F4:189,G4:177,A4:165,B4:153,C5:141,D5:129,E5:117,F5:105};
+const label={C4:"C",D4:"D",E4:"E",F4:"F",G4:"G",A4:"A",B4:"H",C5:"C",D5:"D",E5:"E",F5:"F"};
+
+let level=1, round=[], done=0, stars=0, dragging=null;
+
+function el(tag,attrs={}){
+  const n=document.createElementNS(NS,tag);
+  for(const [k,v] of Object.entries(attrs)) n.setAttribute(k,v);
+  return n;
+}
+
+function drawStaff(){
+  lines.innerHTML="";
+  for(let i=0;i<5;i++){
+    lines.appendChild(el("line",{x1:100,y1:177+i*12,x2:715,y2:177+i*12,class:"staff"}));
+  }
+}
+
+function pool(){
+  if(level===1)return ["C4","D4","E4","F4","G4"];
+  if(level===2)return ["C4","D4","E4","F4","G4","A4","B4","C5","D5"];
+  return ["C4","D4","E4","F4","G4","A4","B4","C5","D5","E5","F5"];
+}
+
+function shuffled(a){
+  return a.slice().sort(()=>Math.random()-.5);
+}
+
+function point(e){
+  const r=svg.getBoundingClientRect();
+  return {
+    x:(e.clientX-r.left)*760/r.width,
+    y:(e.clientY-r.top)*470/r.height
+  };
+}
+
+function setPos(g,x,y){
+  g.querySelector("ellipse").setAttribute("cx",x);
+  g.querySelector("ellipse").setAttribute("cy",y);
+  const stem=g.querySelector("line");
+  stem.setAttribute("x1",x+15);
+  stem.setAttribute("x2",x+15);
+  stem.setAttribute("y1",y-4);
+  stem.setAttribute("y2",y-47);
+  const text=g.querySelector("text");
+  text.setAttribute("x",x);
+  text.setAttribute("y",y);
+}
+
+function startDrag(e){
+  const g=e.currentTarget;
+  if(g.classList.contains("good")) return;
+  e.preventDefault();
+
+  const p=point(e);
+  dragging={
+    g,
+    pointerId:e.pointerId,
+    start:p,
+    x:Number(g.dataset.x),
+    y:Number(g.dataset.y),
+    note:g.dataset.note,
+    index:Number(g.dataset.index)
+  };
+
+  try{g.setPointerCapture(e.pointerId)}catch(_){}
+  g.addEventListener("pointermove",moveDrag);
+  g.addEventListener("pointerup",endDrag,{once:true});
+  g.addEventListener("pointercancel",endDrag,{once:true});
+}
+
+function moveDrag(e){
+  if(!dragging) return;
+  e.preventDefault();
+
+  const p=point(e);
+  let x=dragging.x+p.x-dragging.start.x;
+  let y=dragging.y+p.y-dragging.start.y;
+
+  x=Math.max(105,Math.min(705,x));
+  y=Math.max(70,Math.min(330,y));
+  setPos(dragging.g,x,y);
+}
+
+function endDrag(e){
+  if(!dragging)return;
+  e.preventDefault();
+
+  const d=dragging;
+  const p=point(e);
+  const x=d.x+p.x-d.start.x;
+  const y=d.y+p.y-d.start.y;
+  const tx=145+d.index*120;
+  const ty=pitch[d.note];
+
+  if(Math.hypot(x-tx,y-ty)<32){
+    setPos(d.g,tx,ty);
+    d.g.classList.add("good");
+    done++;
+    stars+=2;
+    scoreEl.textContent="⭐ "+stars;
+
+    if(done===round.length){
+      stars+=3;
+      scoreEl.textContent="⭐ "+stars;
+      status.textContent="🏆 Fantastycznie! Wszystkie nuty!";
+    }else{
+      status.textContent="Brawo! To właściwe miejsce 🎵";
+    }
+  }else{
+    d.g.classList.add("bad");
+    status.textContent="Jeszcze nie 🙂 Spróbuj trochę inaczej.";
+    setTimeout(()=>d.g.classList.remove("bad"),450);
+  }
+
+  d.g.removeEventListener("pointermove",moveDrag);
+  dragging=null;
+}
+
+function createRound(){
+  const p=shuffled(pool());
+  round=p.slice(0,level===1?4:level===2?5:6);
+  done=0;
+  status.textContent="Zaczynamy! 🎶";
+  targets.innerHTML="";
+  notes.innerHTML="";
+
+  round.forEach((n,i)=>{
+    const x=145+i*120;
+    targets.appendChild(el("ellipse",{
+      cx:x,cy:pitch[n],rx:21,ry:11,class:"target"
+    }));
+  });
+
+  const shuffledNotes=shuffled(round);
+
+  shuffledNotes.forEach((n,i)=>{
+    const x=145+i*120;
+    const y=390-(i%2)*12;
+    const g=el("g",{class:"note",tabindex:"0"});
+    g.dataset.note=n;
+    g.dataset.index=round.indexOf(n);
+    g.dataset.x=x;
+    g.dataset.y=y;
+    g.setAttribute("aria-label","Nuta "+label[n]);
+
+    g.appendChild(el("ellipse",{cx:x,cy:y,rx:18,ry:11}));
+    g.appendChild(el("line",{x1:x+15,y1:y-4,x2:x+15,y2:y-47}));
+
+    const t=el("text",{x,y});
+    t.textContent=label[n];
+    g.appendChild(t);
+
+    g.addEventListener("pointerdown",startDrag);
+    g.addEventListener("keydown",e=>{
+      if(e.key==="Enter"||e.key===" "){
+        e.preventDefault();
+        setPos(g,145+round.indexOf(n)*120,pitch[n]);
+        g.classList.add("good");
+        done++;
+        stars+=2;
+        scoreEl.textContent="⭐ "+stars;
+        if(done===round.length){
+          stars+=3;
+          scoreEl.textContent="⭐ "+stars;
+          status.textContent="🏆 Fantastycznie! Wszystkie nuty!";
+        }else status.textContent="Brawo! 🎵";
+      }
+    });
+
+    notes.appendChild(g);
+  });
+}
+
+document.querySelectorAll(".level").forEach(btn=>{
+  btn.addEventListener("click",()=>{
+    level=Number(btn.dataset.level);
+    document.querySelectorAll(".level").forEach(b=>b.classList.toggle("active",b===btn));
+    createRound();
+  });
+});
+
+newRound.addEventListener("click",createRound);
+
+sayNote.addEventListener("click",()=>{
+  if(!("speechSynthesis" in window)){
+    status.textContent="🔊 Ta funkcja nie jest dostępna w tej przeglądarce.";
+    return;
+  }
+  const n=round[0]||"C4";
+  const u=new SpeechSynthesisUtterance("Nuta "+label[n]);
+  u.lang="pl-PL";
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+  status.textContent="🔊 To jest nuta "+label[n]+"!";
+});
+
+drawStaff();
+createRound();
+})();
+</script>
+</body>
+</html>
