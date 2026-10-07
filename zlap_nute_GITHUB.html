@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Złap nutę!</title>
+<style>
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:#f5f7fb;color:#18202a;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    text-align:center;touch-action:manipulation;
+  }
+  .wrap{max-width:900px;margin:auto;padding:18px 12px 28px}
+  h1{margin:4px 0 6px;font-size:30px}
+  .subtitle{margin:0 0 14px;color:#667085}
+  .panel{
+    background:white;border-radius:18px;padding:14px;
+    box-shadow:0 5px 20px rgba(0,0,0,.08);margin-bottom:14px
+  }
+  .levels{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+  button{
+    border:0;border-radius:12px;padding:11px 15px;font-size:16px;
+    background:#e9edf5;cursor:pointer;touch-action:manipulation
+  }
+  button.active{background:#4f46e5;color:white}
+  button.main{background:#111827;color:white}
+  .info{display:flex;justify-content:center;gap:22px;font-weight:700;margin:8px 0}
+  #status{min-height:24px;font-weight:600;margin-top:6px}
+  svg{width:100%;height:auto;display:block;background:#fff;border-radius:14px}
+  .staff{stroke:#111;stroke-width:2}
+  .ledger{stroke:#111;stroke-width:2}
+  .clef{font-family:"Times New Roman",serif;font-size:78px}
+  .note{fill:#111}
+  .note-stem{stroke:#111;stroke-width:2}
+  .note-label{font-size:14px;font-weight:700;fill:#555}
+  .keys{
+    display:flex;justify-content:center;gap:3px;margin-top:15px;
+    overflow-x:auto;padding:4px 2px 8px;
+  }
+  .key{
+    flex:0 0 54px;height:105px;background:white;border:2px solid #222;
+    border-radius:0 0 8px 8px;position:relative;padding-top:72px;
+    font-weight:700;touch-action:manipulation;
+  }
+  .key.black{
+    flex-basis:36px;height:66px;background:#151515;color:white;
+    margin:0 -20px;z-index:2;padding-top:42px;border-radius:0 0 6px 6px;
+  }
+  .key.correct{background:#34d399!important;color:#052e16}
+  .key.wrong{background:#fb7185!important;color:#4c0519}
+  .small{font-size:13px;color:#667085}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎵 Złap nutę!</h1>
+  <p class="subtitle">Rozpoznaj nutę i kliknij odpowiedni klawisz.</p>
+
+  <div class="panel">
+    <div class="levels">
+      <button class="level active" data-level="1">Poziom 1 · razkreślna</button>
+      <button class="level" data-level="2">Poziom 2 · raz + dwukreślna</button>
+      <button class="level" data-level="3">Poziom 3 · mała + razkreślna</button>
+      <button class="level" data-level="4">Poziom 4 · mała–dwukreślna</button>
+    </div>
+    <div class="info">
+      <span>⭐ Wynik: <b id="score">0</b></span>
+      <span>🎯 Poziom: <b id="levelName">razkreślna</b></span>
+    </div>
+    <button class="main" id="start">▶ Start</button>
+    <button id="new">🎵 Nowa nuta</button>
+    <div id="status">Wybierz poziom i rozpocznij grę.</div>
+  </div>
+
+  <div class="panel">
+    <svg id="staffSvg" viewBox="0 0 760 330" aria-label="Pięciolinia">
+      <!-- pięciolinia -->
+      <line class="staff" x1="105" y1="175" x2="720" y2="175"/>
+      <line class="staff" x1="105" y1="187" x2="720" y2="187"/>
+      <line class="staff" x1="105" y1="199" x2="720" y2="199"/>
+      <line class="staff" x1="105" y1="211" x2="720" y2="211"/>
+      <line class="staff" x1="105" y1="223" x2="720" y2="223"/>
+
+      <text class="clef" x="31" y="216">𝄞</text>
+
+      <g id="ledgerGroup"></g>
+      <g id="noteGroup"></g>
+    </svg>
+
+    <div class="small">Linie dodane pojawiają się tylko wtedy, gdy są potrzebne — i przechodzą przez środek główki nuty.</div>
+
+    <div class="keys" id="keys"></div>
+  </div>
+</div>
+
+<script>
+const pitches = [
+  {name:'C3', pl:'C', y:247},
+  {name:'D3', pl:'D', y:235},
+  {name:'E3', pl:'E', y:247-24}, // poprawione przez mapowanie poniżej
+  {name:'F3', pl:'F', y:223},
+  {name:'G3', pl:'G', y:211},
+  {name:'A3', pl:'A', y:199},
+  {name:'H3', pl:'H', y:187},
+  {name:'C4', pl:'C', y:175},
+  {name:'D4', pl:'D', y:163},
+  {name:'E4', pl:'E', y:151},
+  {name:'F4', pl:'F', y:139},
+  {name:'G4', pl:'G', y:127},
+  {name:'A4', pl:'A', y:115},
+  {name:'H4', pl:'H', y:103},
+  {name:'C5', pl:'C', y:91},
+  {name:'D5', pl:'D', y:79},
+  {name:'E5', pl:'E', y:67},
+  {name:'F5', pl:'F', y:55},
+  {name:'G5', pl:'G', y:43},
+  {name:'A5', pl:'A', y:31},
+  {name:'H5', pl:'H', y:19}
+];
+
+// Ustawienia zakresów. C4 = nuta na pierwszej przestrzeni/liniach zgodnie z naszym
+// uproszczonym układem; wysokości są równomierne co pół interwału.
+const ranges = {
+  1:{label:'razkreślna', start:7, end:13},       // C4-H4
+  2:{label:'raz + dwukreślna', start:7, end:20}, // C4-H5
+  3:{label:'mała + razkreślna', start:0, end:13}, // C3-H4
+  4:{label:'mała–dwukreślna', start:0, end:20}
+};
+
+let level=1, score=0, current=null, x=150, running=false, last=0, raf=null;
+const svg=document.getElementById('staffSvg');
+const noteGroup=document.getElementById('noteGroup');
+const ledgerGroup=document.getElementById('ledgerGroup');
+const scoreEl=document.getElementById('score');
+const statusEl=document.getElementById('status');
+const levelName=document.getElementById('levelName');
+
+function getPitchY(index){
+  // Pięciolinia: linie od H4=175 do G4=223 w tym modelu.
+  // Co jeden stopień diatoniczny = 12 px.
+  return 175 - (index-13)*12;
+}
+
+function pitchIndex(){
+  const p = current;
+  return pitches.indexOf(p);
+}
+
+function drawLedgerLines(y){
+  ledgerGroup.innerHTML='';
+  // Pięciolinia: od y=175 (górna) do y=223 (dolna).
+  // Linie dodane są tylko na pozycjach liniowych poza pięciolinią.
+  // Linia przechodzi przez środek główki nuty.
+  const top=175, bottom=223, step=12;
+  if(y < top-6){
+    for(let ly=top-step; ly>=y-0.1; ly-=step){
+      if(ly <= top-step+0.1) addLedger(ly);
+    }
+  }
+  if(y > bottom+6){
+    for(let ly=bottom+step; ly<=y+0.1; ly+=step){
+      if(ly >= bottom+step-0.1) addLedger(ly);
+    }
+  }
+}
+
+function addLedger(y){
+  const line=document.createElementNS('http://www.w3.org/2000/svg','line');
+  line.setAttribute('class','ledger');
+  line.setAttribute('x1',x-16);
+  line.setAttribute('x2',x+16);
+  line.setAttribute('y1',y);
+  line.setAttribute('y2',y);
+  ledgerGroup.appendChild(line);
+}
+
+function render(){
+  if(!current) return;
+  const y=getPitchY(pitchIndex());
+  drawLedgerLines(y);
+
+  noteGroup.innerHTML='';
+  const ellipse=document.createElementNS('http://www.w3.org/2000/svg','ellipse');
+  ellipse.setAttribute('class','note');
+  ellipse.setAttribute('cx',x);
+  ellipse.setAttribute('cy',y);
+  ellipse.setAttribute('rx','11');
+  ellipse.setAttribute('ry','8');
+
+  const stem=document.createElementNS('http://www.w3.org/2000/svg','line');
+  stem.setAttribute('class','note-stem');
+  if(y>=199){
+    stem.setAttribute('x1',x+10); stem.setAttribute('y1',y);
+    stem.setAttribute('x2',x+10); stem.setAttribute('y2',y-48);
+  }else{
+    stem.setAttribute('x1',x-10); stem.setAttribute('y1',y);
+    stem.setAttribute('x2',x-10); stem.setAttribute('y2',y+48);
+  }
+  noteGroup.appendChild(ellipse);
+  noteGroup.appendChild(stem);
+}
+
+function randomPitch(){
+  const r=ranges[level];
+  return pitches[Math.floor(Math.random()*(r.end-r.start+1))+r.start];
+}
+
+function newNote(){
+  current=randomPitch();
+  x=150;
+  statusEl.textContent='🎵 Złap nutę!';
+  render();
+}
+
+function animate(t){
+  if(!running){last=t; raf=requestAnimationFrame(animate); return;}
+  if(!last) last=t;
+  const dt=Math.min(40,t-last); last=t;
+  x += dt*0.075;
+  if(x>720){
+    statusEl.textContent='💨 Nuta uciekła! Spróbuj ponownie.';
+    running=false;
+    document.getElementById('start').textContent='▶ Start';
+    return;
+  }
+  render();
+  raf=requestAnimationFrame(animate);
+}
+raf=requestAnimationFrame(animate);
+
+function makeKeys(){
+  const order=['C4','D4','E4','F4','G4','A4','H4','C5','D5','E5','F5','G5','A5','H5'];
+  const blackBefore={'D4':'Cis','E4':'Dis','G4':'Fis','A4':'Gis','H4':'Ais','D5':'Cis','E5':'Dis'};
+  const container=document.getElementById('keys');
+  container.innerHTML='';
+  order.forEach(n=>{
+    if(blackBefore[n]){
+      const b=document.createElement('button');
+      b.className='key black';
+      b.textContent=blackBefore[n];
+      b.dataset.pitch='black';
+      container.appendChild(b);
+    }
+    const k=document.createElement('button');
+    k.className='key';
+    k.textContent=n.replace(/[0-9]/g,'');
+    k.dataset.pitch=n;
+    k.addEventListener('click',()=>answer(n,k));
+    container.appendChild(k);
+  });
+}
+makeKeys();
+
+function answer(n,key){
+  if(!current) return;
+  if(n===current.name){
+    score++;
+    scoreEl.textContent=score;
+    key.classList.add('correct');
+    statusEl.textContent='✅ Dobrze!';
+    setTimeout(()=>key.classList.remove('correct'),350);
+    setTimeout(newNote,450);
+  }else{
+    key.classList.add('wrong');
+    statusEl.textContent='❌ Spróbuj jeszcze raz.';
+    setTimeout(()=>key.classList.remove('wrong'),350);
+  }
+}
+
+document.querySelectorAll('.level').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.level').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    level=Number(btn.dataset.level);
+    levelName.textContent=ranges[level].label;
+    score=0; scoreEl.textContent=0;
+    newNote();
+  });
+});
+
+document.getElementById('new').addEventListener('click',newNote);
+document.getElementById('start').addEventListener('click',()=>{
+  if(!current)newNote();
+  running=!running;
+  last=0;
+  document.getElementById('start').textContent=running?'⏸ Pauza':'▶ Start';
+  if(running) raf=requestAnimationFrame(animate);
+});
+
+newNote();
+</script>
+</body>
+</html>
